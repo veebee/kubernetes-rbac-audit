@@ -1,30 +1,47 @@
 import json
+import yaml
+import pathlib
 import argparse
 import logging
 from colorama import init, Fore, Back, Style
 
 def get_argument_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--clusterRole', type=str, required=False, help='ClusterRoles JSON file',)
-    parser.add_argument('--role', type=str, required=False, help='roles JSON file')
-    parser.add_argument('--rolebindings', type=str, required=False, help='RoleBindings JSON file')
-    parser.add_argument('--cluseterolebindings', type=str, required=False, help='ClusterRoleBindings JSON file')
+    parser.add_argument('--clusterRole', type=str, required=False, help='ClusterRoles file, either JSON or YAML')
+    parser.add_argument('--role', type=str, required=False, help='roles JSON file, either JSON or YAML')
+    parser.add_argument('--rolebindings', type=str, required=False, help='RoleBindings JSON file, either JSON or YAML')
+    parser.add_argument('--cluseterolebindings', type=str, required=False, help='ClusterRoleBindings JSON file, either JSON or YAML')
     return parser.parse_args()
 
-# Read data from files
+# Read data from input files
 def open_file(file_path):
+    file_extension = pathlib.Path(file_path).suffix
+    if (file_extension == ".json"):
+        return open_json_file(file_path)
+    elif (file_extension == ".yaml" or file_extension == ".yml"):
+        return open_yaml_file(file_path)
+    else:
+        return
+
+# Read data from JSON files
+def open_json_file(file_path):
     with open(file_path) as f:
         return json.load(f)
 
+# Read data from YAML files
+def open_yaml_file(file_path):
+    with open(file_path) as f:
+        return yaml.safe_load(f)
+
 class ExtensiveRolesChecker(object):
-    def __init__(self, json_file, role_kind):
+    def __init__(self, role_file, role_kind):
         init()
         self._role = logging.getLogger(role_kind)
         self._role_handler = logging.StreamHandler()
         self._role_format = logging.Formatter(f'{Fore.YELLOW}[!][%(name)s]{Fore.WHITE}\u2192 %(message)s')
         self._role_handler.setFormatter(self._role_format)
         self._role.addHandler(self._role_handler)
-        self._json_file = json_file
+        self._role_file = role_file
         self._results = {}
         self._generate()
 
@@ -40,21 +57,34 @@ class ExtensiveRolesChecker(object):
         else:
             self._results[name].append(value)
 
-    def _generate(self):
-        for entity in self._json_file['items']:
+    def _retrieveRules(self, role_name, rules):
+        for rule in rules:
+            if not rule.get('resources', None):
+                continue
+            self.get_read_secrets(rule, role_name)
+            self.clusteradmin_role(rule, role_name)
+            self.any_resources(rule, role_name)
+            self.any_verb(rule, role_name)
+            self.high_risk_roles(rule, role_name)
+            self.role_and_roleBindings(rule, role_name)
+            self.create_pods(rule, role_name)
+            self.pods_exec(rule, role_name)
+            self.pods_attach(rule, role_name)
+
+    def _generateFromJson(self):
+        for entity in self._role_file['items']:
             role_name = entity['metadata']['name']
-            for rule in entity['rules']:
-                if not rule.get('resources', None):
-                    continue
-                self.get_read_secrets(rule, role_name)
-                self.clusteradmin_role(rule, role_name)
-                self.any_resources(rule, role_name)
-                self.any_verb(rule, role_name)
-                self.high_risk_roles(rule, role_name)
-                self.role_and_roleBindings(rule, role_name)
-                self.create_pods(rule, role_name)
-                self.pods_exec(rule, role_name)
-                self.pods_attach(rule, role_name)
+            self._retrieveRules(role_name, entity['rules'])
+
+    def _generateFromYaml(self):
+        role_name = self._role_file['metadata']['name']
+        self._retrieveRules(role_name, self._role_file['rules'])
+
+    def _generate(self):
+        if ('items' in self._role_file):
+            return self._generateFromJson()
+        else:
+            return self._generateFromYaml()
 
     #Read cluster secrets:
     def get_read_secrets(self, rule, role_name):
@@ -164,8 +194,8 @@ class ExtensiveRolesChecker(object):
 
 
 class roleBingingChecker(object):
-    def __init__(self, json_file, extensive_roles, bind_kind):
-        self._json_file = json_file
+    def __init__(self, role_file, extensive_roles, bind_kind):
+        self._role_file = role_file
         self._extensive_roles = extensive_roles
         self._bind_kind = bind_kind
         self._results = []
@@ -173,7 +203,7 @@ class roleBingingChecker(object):
 
     def bindsCheck(self):
         _rolebiding_found = []
-        for entity in self._json_file['items']:
+        for entity in self._role_file['items']:
             _role_name = entity['metadata']['name']
             _rol_ref = entity['roleRef']['name']
             if not entity.get('subjects', None):
@@ -199,26 +229,26 @@ if __name__ == '__main__':
     if args.clusterRole:
         print('\n[*] Started enumerating risky ClusterRoles:')
         role_kind = 'ClusterRole'
-        clusterRole_json_file = open_file(args.clusterRole)
-        extensiveClusterRolesChecker = ExtensiveRolesChecker(clusterRole_json_file, role_kind)
+        clusterRole_file = open_file(args.clusterRole)
+        extensiveClusterRolesChecker = ExtensiveRolesChecker(clusterRole_file, role_kind)
         extensive_ClusterRoles = [result for result in extensiveClusterRolesChecker.results]
 
     if args.role:
         print(f'{Fore.WHITE}[*] Started enumerating risky Roles:')
         role_kind = 'Role'
-        Role_json_file = open_file(args.role)
-        extensiveRolesChecker = ExtensiveRolesChecker(Role_json_file, role_kind)
+        Role_file = open_file(args.role)
+        extensiveRolesChecker = ExtensiveRolesChecker(Role_file, role_kind)
         extensive_roles = [result for result in extensiveRolesChecker.results if result not in extensive_ClusterRoles]
         extensive_roles = extensive_roles + extensive_ClusterRoles
 
     if args.cluseterolebindings:
         print(f'{Fore.WHITE}[*] Started enumerating risky ClusterRoleBinding:')
         bind_kind = 'ClusterRoleBinding'
-        clusterRoleBinding_json_file = open_file(args.cluseterolebindings)
-        extensive_clusteRoleBindings = roleBingingChecker(clusterRoleBinding_json_file, extensive_roles, bind_kind)
+        clusterRoleBinding_file = open_file(args.cluseterolebindings)
+        extensive_clusteRoleBindings = roleBingingChecker(clusterRoleBinding_file, extensive_roles, bind_kind)
 
     if args.rolebindings:
         print(f'{Fore.WHITE}[*] Started enumerating risky RoleRoleBindings:')
         bind_kind = 'RoleBinding'
-        RoleBinding_json_file = open_file(args.rolebindings)
-        extensive_RoleBindings = roleBingingChecker(RoleBinding_json_file, extensive_roles, bind_kind)
+        RoleBinding_file = open_file(args.rolebindings)
+        extensive_RoleBindings = roleBingingChecker(RoleBinding_file, extensive_roles, bind_kind)
