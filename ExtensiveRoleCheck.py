@@ -34,14 +34,14 @@ def open_yaml_file(file_path):
         return yaml.safe_load(f)
 
 class ExtensiveRolesChecker(object):
-    def __init__(self, json_file, role_kind):
+    def __init__(self, role_file, role_kind):
         init()
         self._role = logging.getLogger(role_kind)
         self._role_handler = logging.StreamHandler()
         self._role_format = logging.Formatter(f'{Fore.YELLOW}[!][%(name)s]{Fore.WHITE}\u2192 %(message)s')
         self._role_handler.setFormatter(self._role_format)
         self._role.addHandler(self._role_handler)
-        self._json_file = json_file
+        self._role_file = role_file
         self._results = {}
         self._generate()
 
@@ -72,16 +72,16 @@ class ExtensiveRolesChecker(object):
             self.pods_attach(rule, role_name)
 
     def _generateFromJson(self):
-        for entity in self._json_file['items']:
+        for entity in self._role_file['items']:
             role_name = entity['metadata']['name']
             self._retrieveRules(role_name, entity['rules'])
 
     def _generateFromYaml(self):
-        role_name = self._json_file['metadata']['name']
-        self._retrieveRules(role_name, self._json_file['rules'])
+        role_name = self._role_file['metadata']['name']
+        self._retrieveRules(role_name, self._role_file['rules'])
 
     def _generate(self):
-        if ('items' in self._json_file):
+        if ('items' in self._role_file):
             return self._generateFromJson()
         else:
             return self._generateFromYaml()
@@ -194,8 +194,8 @@ class ExtensiveRolesChecker(object):
 
 
 class roleBingingChecker(object):
-    def __init__(self, json_file, extensive_roles, bind_kind):
-        self._json_file = json_file
+    def __init__(self, role_file, extensive_roles, bind_kind):
+        self._role_file = role_file
         self._extensive_roles = extensive_roles
         self._bind_kind = bind_kind
         self._results = []
@@ -203,7 +203,7 @@ class roleBingingChecker(object):
 
     def bindsCheck(self):
         _rolebiding_found = []
-        for entity in self._json_file['items']:
+        for entity in self._role_file['items']:
             _role_name = entity['metadata']['name']
             _rol_ref = entity['roleRef']['name']
             if not entity.get('subjects', None):
@@ -229,8 +229,8 @@ if __name__ == '__main__':
     if args.clusterRole:
         print('\n[*] Started enumerating risky ClusterRoles:')
         role_kind = 'ClusterRole'
-        clusterRole_json_file = open_file(args.clusterRole)
-        extensiveClusterRolesChecker = ExtensiveRolesChecker(clusterRole_json_file, role_kind)
+        clusterRole_file = open_file(args.clusterRole)
+        extensiveClusterRolesChecker = ExtensiveRolesChecker(clusterRole_file, role_kind)
         extensive_ClusterRoles = [result for result in extensiveClusterRolesChecker.results]
 
     if args.role:
