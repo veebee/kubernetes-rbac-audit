@@ -1,5 +1,4 @@
-import json
-import yaml
+import json, yaml
 import pathlib
 import argparse
 import logging
@@ -10,16 +9,30 @@ def get_argument_parser():
     parser.add_argument('--clusterRole', type=str, required=False, help='ClusterRoles file, either JSON or YAML')
     parser.add_argument('--role', type=str, required=False, help='roles JSON file, either JSON or YAML')
     parser.add_argument('--rolebindings', type=str, required=False, help='RoleBindings JSON file, either JSON or YAML')
-    parser.add_argument('--cluseterolebindings', type=str, required=False, help='ClusterRoleBindings JSON file, either JSON or YAML')
+    parser.add_argument('--clusterolebindings', type=str, required=False, help='ClusterRoleBindings JSON file, either JSON or YAML')
     return parser.parse_args()
+
+def isJsonFile(path):
+    extension = path.suffix
+    if (extension.lower() == ".json"):
+        return True
+
+    return False
+
+def isYamlFile(path):
+    extension = path.suffix
+    if (extension.lower() == ".yaml" or extension.lower() == ".yml"):
+        return True
+
+    return False
 
 # Read data from input files
 def open_file(file_path):
-    file_extension = pathlib.Path(file_path).suffix
-    if (file_extension == ".json"):
-        return open_json_file(file_path)
-    elif (file_extension == ".yaml" or file_extension == ".yml"):
-        return open_yaml_file(file_path)
+    path = pathlib.Path(file_path)
+    if (isJsonFile(path)):
+        return open_json_file(path)
+    elif (isYamlFile(path)):
+        return open_yaml_file(path)
     else:
         return
 
@@ -193,7 +206,7 @@ class ExtensiveRolesChecker(object):
             return name
 
 
-class roleBingingChecker(object):
+class roleBindingChecker(object):
     def __init__(self, role_file, extensive_roles, bind_kind):
         self._role_file = role_file
         self._extensive_roles = extensive_roles
@@ -226,29 +239,62 @@ class roleBingingChecker(object):
 
 if __name__ == '__main__':
     args = get_argument_parser()
+
     if args.clusterRole:
         print('\n[*] Started enumerating risky ClusterRoles:')
         role_kind = 'ClusterRole'
-        clusterRole_file = open_file(args.clusterRole)
-        extensiveClusterRolesChecker = ExtensiveRolesChecker(clusterRole_file, role_kind)
-        extensive_ClusterRoles = [result for result in extensiveClusterRolesChecker.results]
+
+        if (pathlib.Path(args.clusterRole).is_dir()):
+            for file in pathlib.Path(args.clusterRole).iterdir():
+                if (isJsonFile(file) or isYamlFile(file)):
+                    clusterRole_file = open_file(args.clusterRole)
+                    extensiveClusterRolesChecker = ExtensiveRolesChecker(clusterRole_file, role_kind)
+                    extensive_ClusterRoles = [result for result in extensiveClusterRolesChecker.results]
+        else:
+            clusterRole_file = open_file(args.clusterRole)
+            extensiveClusterRolesChecker = ExtensiveRolesChecker(clusterRole_file, role_kind)
+            extensive_ClusterRoles = [result for result in extensiveClusterRolesChecker.results]
 
     if args.role:
         print(f'{Fore.WHITE}[*] Started enumerating risky Roles:')
         role_kind = 'Role'
-        Role_file = open_file(args.role)
-        extensiveRolesChecker = ExtensiveRolesChecker(Role_file, role_kind)
-        extensive_roles = [result for result in extensiveRolesChecker.results if result not in extensive_ClusterRoles]
-        extensive_roles = extensive_roles + extensive_ClusterRoles
 
-    if args.cluseterolebindings:
+        if (pathlib.Path(args.role).is_dir()):
+            for file in pathlib.Path(args.role).iterdir():
+                if (isJsonFile(file) or isYamlFile(file)):
+                    role_file = open_file(args.role)
+                    extensiveRolesChecker = ExtensiveRolesChecker(role_file, role_kind)
+                    extensive_roles = [result for result in extensiveRolesChecker.results if result not in extensive_ClusterRoles]
+                    extensive_roles = extensive_roles + extensive_ClusterRoles
+        else:
+            Role_file = open_file(args.role)
+            extensiveRolesChecker = ExtensiveRolesChecker(Role_file, role_kind)
+            extensive_roles = [result for result in extensiveRolesChecker.results if result not in extensive_ClusterRoles]
+            extensive_roles = extensive_roles + extensive_ClusterRoles
+
+    if args.clusterolebindings:
         print(f'{Fore.WHITE}[*] Started enumerating risky ClusterRoleBinding:')
         bind_kind = 'ClusterRoleBinding'
-        clusterRoleBinding_file = open_file(args.cluseterolebindings)
-        extensive_clusteRoleBindings = roleBingingChecker(clusterRoleBinding_file, extensive_roles, bind_kind)
+
+        if (pathlib.Path(args.clusterolebindings).is_dir()):
+            for file in pathlib.Path(args.clusterolebindings).iterdir():
+                if (isJsonFile((file) or isYamlFile(file))):
+                    clusterRoleBinding_file = open_file(args.clusterolebindings)
+                    extensive_clusteRoleBindings = roleBindingChecker(clusterRoleBinding_file, extensive_roles, bind_kind)
+
+        else:
+            clusterRoleBinding_file = open_file(args.clusterolebindings)
+            extensive_clusteRoleBindings = roleBindingChecker(clusterRoleBinding_file, extensive_roles, bind_kind)
 
     if args.rolebindings:
         print(f'{Fore.WHITE}[*] Started enumerating risky RoleRoleBindings:')
         bind_kind = 'RoleBinding'
-        RoleBinding_file = open_file(args.rolebindings)
-        extensive_RoleBindings = roleBingingChecker(RoleBinding_file, extensive_roles, bind_kind)
+
+        if (pathlib.Path(args.rolebindings).is_dir()):
+            for file in pathlib.Path(args.rolebindings).iterdir():
+                RoleBinding_file = open_file(args.rolebindings)
+                extensive_RoleBindings = roleBindingChecker(RoleBinding_file, extensive_roles, bind_kind)
+
+        else:
+            RoleBinding_file = open_file(args.rolebindings)
+            extensive_RoleBindings = roleBindingChecker(RoleBinding_file, extensive_roles, bind_kind)
